@@ -97,34 +97,47 @@ sol2uml class ./src -f png -o ./classDiagram.png --hideInterfaces
 
 ![class diagram](./asset/classDiagram.png)
 
-### Pistes d'amélioration
+## Pistes d’Amélioration
 
-- Utiliser des imports spécific au lieu d'un import global.
-- Utiliser des noms de fonction commençant par '_' pour les fonctions interne afin de respecter la convention proposée par Solidity.
-- Utilisation d'une factory afin de garantir l'unicité de l'address du smart contract déploye (risqué avec un EOA). Factry possible => <https://github.com/pcaversaccio/createx>
+1. **Imports plus spécifiques**  
+   - Éviter les imports globaux pour réduire la taille du bytecode, faciliter l’audit et limiter les conflits.
+   - **Exemple** : Au lieu de `import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";`, importer uniquement le module nécessaire si le reste du code n’est pas utilisé.
 
-#### Questions/improve
+2. **Convention de nommage pour les fonctions internes**  
+   - Préfixer les fonctions internes par `_` pour renforcer la lisibilité et indiquer clairement la visibilité.
+   - **Exemple** : `function _executeTransfer(...) internal { ... }`
 
-- Qu'est ce qui se passe si ce ne son pas des Wallet mais des SCA (Smart Contract Account) qui effectue les transaction ???
-- use multicall to batch sub-transaction together
-- On aurait pu stoker stoker les mapping dans une struct
-- adapter.delegatecall peut utiliser une lib de OZ ?
+3. **Factory dédiée pour le déploiement de contrats**  
+   - Une “Factory” facilite la gouvernance, la traçabilité et assure l’unicité des adresses lors du déploiement.
+   - **Ressource** : [createx](https://github.com/pcaversaccio/createx) pour un déploiement avec `CREATE2`.
 
-#### Questions/improve
+4. **Admin Proxy et Gestion centralisée de l’Ownership**  
+   - Utiliser un “Admin Proxy” (ou multisig) pour gérer les rôles (owner, minter, etc.) sur plusieurs chaînes.
+   - **Avantage** : Administration uniformisée, upgrades coordonnées et réduction du risque d’erreurs.
 
-- pourquoi ne pas avoir un ownableTwoStep (permet d'eviter des erreurs)
-- use transferOwnership instead of _transferOwnership. if wrong address is set it could freeze the contract and will generate any issue as all contract should have the same deployment address
-- pourquoi minter est le owner et doit renoncer à l'ownership du contract ?
-- pourquoi ne pas directement mettre le minter dans le constructeur
-- ajouter certains arg dans l'event Error pour avoir une meilleur exeprience utilisateur/dégeugage
+5. **Structs pour stocker les mappings & usage d’ERC1967**  
+   - Regrouper dans des structs (ex. `nonce`, `tokens`, etc.) pour améliorer la clarté et la modularité du code.
+   - **Ressource** : [ERC1967](https://docs.openzeppelin.com/contracts/5.x/api/utils#StorageSlot) pour des contrats upgradeables (UUPS, TransparentProxy).
 
-#### Questions/improve
+6. **Utiliser `transferOwnership` au lieu de `_transferOwnership`**  
+   - `transferOwnership` vérifie que l’adresse n’est pas `0`, réduisant le risque de “soft lock” si une adresse invalide est fournie.
 
-- comment le routeur de chainLink est géré ? Est ce qu'il utilise un proxy ? Qu'est ce qui se passe si jamais l'address du routeur change ?
+7. **Réflexion sur le rôle de “minter” et l’ownership**  
+   - Passer directement le `minter` ou l’owner dans le constructeur si possible.
+   - Vérifier la nécessité de renoncer à l’ownership si le contrat doit évoluer à l’avenir.
+
+8. **Événements et messages d’erreur plus riches**  
+   - Inclure plus de contexte (ex. `chainId` dans `CannotSendToSelf()`) pour faciliter débogage et monitoring.
+
+9. **Rendre l’adresse `router` (CCIP) modifiable**  
+   - L’actuel `immutable` rend tout changement du `router` compliqué.
+   - **Solution** : rendre le contrat upgradeable (UUPS/TransparentProxy) ou ajouter une fonction de mise à jour de l’adresse du `router`.
 
 #### Coverage
 
 ![coverage](./asset/coverage.png)
+
+On peut constater que certaines fonctions ne sont pas testée. On pourrait donc augmenter le coverage en ajoutant de nouveaux tests. Cela permettrait en cas d'upgrade d'évité d'introduire des regression.
 
 #### Storage
 
@@ -138,47 +151,24 @@ sol2uml storage src,node_modules/@openzeppelin -c ContractName -f png
 
 ![storage](./asset/storage-TokenFactory.png)
 
-#### Analyser static
+Pas d'amélioration notable en ce qui concerne l'optimisation du storage.
+
+#### Analyse Statique (Slither)
 
 ```bash
 slither . 
 ```
 
-[
-  {
-    "issue": "Arbitrary 'from' in transferFrom",
-    "details": "TokenFactory.burn(address,address,uint256) uses arbitrary 'from' in transferFrom at IERC20(nativeToken).safeTransferFrom(from,address(this),amount).",
-    "location": "src/TokenFactory.sol#79-89",
-    "reference": "https://github.com/crytic/slither/wiki/Detector-Documentation#arbitrary-from-in-transferfrom"
-  },
-  {
-    "issue": "Controlled delegatecall",
-    "details": "LaPoste.sendMessage(ILaPoste.MessageParams,uint256,address) uses delegatecall to an input-controlled function ID.",
-    "location": "src/LaPoste.sol#80-159",
-    "reference": "https://github.com/crytic/slither/wiki/Detector-Documentation#controlled-delegatecall"
-  },
-  {
-    "issue": "abi.encodePacked collision",
-    "details": "TokenFactory.getOrCreateWrappedToken(address,string,string,uint8) calls abi.encodePacked() with multiple dynamic arguments.",
-    "location": "src/TokenFactory.sol#97-112",
-    "reference": "https://github.com/crytic/slither/wiki/Detector-Documentation#abi-encodePacked-collision"
-  },
-  {
-    "issue": "Reentrancy vulnerability",
-    "details": [
-      "In LaPoste.receiveMessage(uint256,bytes), external calls are made before modifying state variables. Cross-function reentrancy possible.",
-      "In LaPoste.sendMessage(ILaPoste.MessageParams,uint256,address), external calls are made before modifying state variables. Cross-function reentrancy possible."
-    ],
-    "locations": [
-      "src/LaPoste.sol#164-221 (receiveMessage)",
-      "src/LaPoste.sol#80-159 (sendMessage)"
-    ],
-    "reference": "https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-1"
-  },
-  {
-    "issue": "Uninitialized local variable",
-    "details": "LaPoste.sendMessage(ILaPoste.MessageParams,uint256,address).message is a local variable never initialized.",
-    "location": "src/LaPoste.sol#90",
-    "reference": "https://github.com/crytic/slither/wiki/Detector-Documentation#uninitialized-local-variables"
-  }
-]
+Le rapport Slither ci-dessous signale plusieurs alertes qui, après examen, se révèlent être des faux positifs. Le tableau récapitule chaque alerte ainsi que l’explication.
+
+## Analyse Statique (Slither)
+
+Le rapport Slither ci-dessous signale plusieurs alertes qui, après examen, se révèlent être des faux positifs dans notre contexte métier. Le tableau récapitule chaque alerte ainsi que l’explication.
+
+| **Issue**                          | **Détails**                                                                                                                                  | **Location**                                                               | **Reference**                                                                                                                                 | **Faux Positif 🟢** |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| Arbitrary 'from' in `transferFrom` | Slither alerte sur le fait que `burn()` appelle `safeTransferFrom(from, address(this), amount)` avec un `from` arbitraire.                   | `TokenFactory.sol#79-89`                                                   | [Slither Doc: Arbitrary 'from' in transferFrom](https://github.com/crytic/slither/wiki/Detector-Documentation#arbitrary-from-in-transferfrom) | Faux positif       |
+| Controlled `delegatecall`          | Dans `LaPoste.sendMessage`, l’appel à `adapter.delegatecall(...)` est contrôlé par un input externe.                                         | `LaPoste.sol#80-159`                                                       | [Slither Doc: Controlled delegatecall](https://github.com/crytic/slither/wiki/Detector-Documentation#controlled-delegatecall)                 | Faux positif       |
+| `abi.encodePacked` collision       | Slither souligne un risque de collision lors de l’usage de `abi.encodePacked` avec plusieurs arguments dynamiques (noms, symboles, etc.).    | `TokenFactory.sol#97-112`                                                  | [Slither Doc: abi.encodePacked collision](https://github.com/crytic/slither/wiki/Detector-Documentation#abi-encodepacked-collision)           | Faux positif       |
+| Reentrancy vulnerability           | Slither détecte des appels externes avant la mise à jour de certaines variables d’état (Ex. `receiveMessage` et `sendMessage` dans LaPoste). | `LaPoste.sol#164-221 (receiveMessage)<br>LaPoste.sol#80-159 (sendMessage)` | [Slither Doc: Reentrancy vulnerabilities](https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-1)         | Faux positif       |
+| Uninitialized local variable       | Slither considère que la variable `message` dans `LaPoste.sendMessage` n’est pas initialisée.                                                | `LaPoste.sol#90`                                                           | [Slither Doc: Uninitialized local variables](https://github.com/crytic/slither/wiki/Detector-Documentation#uninitialized-local-variables)     | Faux positif       |
