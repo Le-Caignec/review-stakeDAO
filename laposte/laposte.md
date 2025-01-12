@@ -20,18 +20,18 @@ graph TD
         Receiver[Receiver Contract]
     end
 
-    %% User Interactions
+    %% Utilisateur
     User((User)) -->|Send Message/Token| LaPosteSource
     LaPosteSource -->|Lock/Burn Tokens| TokenFactorySource
     LaPosteSource -->|Send Message| AdapterSource
     TokenFactorySource -->|Lock/Burn| TokenSource
 
-    %% Cross-Chain Communication
+    %% Cross-Chain
     AdapterSource -.->|CCIP Protocol| RelayerOffChain
     RelayerOffChain -.->|CCIP Protocol| AdapterDestination
     AdapterDestination -->|Message Delivered| LaPosteDestination
 
-    %% Receiving Side
+    %% Reception
     LaPosteDestination -->|Mint/Unlock Tokens| TokenFactoryDestination
     TokenFactoryDestination -->|Mint/Unlock| TokenWrapped
     LaPosteDestination -->|Forward Payload| Receiver
@@ -54,27 +54,40 @@ graph TD
 
 ### LaPoste Contract
 
-Ce contract a pour but de permettre a des utilisateur d'envoyer des messages interchain ainsi que des token. Il s'appuie sur le protocole CCIP de chainLink
-
-- Si des tokens sont envoyés, bien penser à faire l'approve côté front du Smart Contract Token Factory.
-- Utilisation de `Ownable2Step` pour éviter les erreurs de transfert d'ownership vers des smart contracts ou EOA non désirés.
-- Utilisation d'un nonce pour éviter les Replay Attacks onChain.
-- Utilisation d'un double mapping au lieu d'un simple pour les `receivedNonces`. En effet, certains messages envoyés ne peuvent pas tous être reçus. Les nonces reçus ne constituent donc pas une suite d'entiers positifs continue.
+- **Rôl**e : Contrat principal permettant l’envoi de messages inter-chaînes et de tokens.
+- **Fonctionnement** :
+ • Envoi de messages : La fonction sendMessage encode le message (payload + informations sur les tokens à transférer), incrémente un nonce (spécifique à la chaîne de destination), et effectue un delegatecall vers l’Adapter pour initier la transmission cross-chain via CCIP. Cette fonction appel également le TokenFactory contract afin de burn/lock des tokens (elle a pour pré-requis un approve sur le TokenFactory contract)
+ • Réception de messages : La fonction receiveMessage est appelée uniquement par l’Adapter. Elle vérifie le nonce (prévention contre les replay attaques) et exécute la logique de réception (mint ou unlock des tokens, puis appel au destinataire).
+ • Gestion des tokens : Lors d’un envoi, si un token est transféré, LaPoste fait appel à TokenFactory pour effectuer un burn (token wrap sur la chaîne source) ou un lock (token natif sur la chaîne source). Lors de la réception, il fait appel à TokenFactory pour mint (tokens wrap) ou unlock (tokens natifs).
+ • **Propriétés intéressantes** :
+      • Use de Ownable2Step pour sécuriser le changement d’ownership.
+      • Usage de receivedNonces[originChainId][nonce] pour empêcher la relecture d’un message déjà traité. Les nonces des messages recu ne suivent pas une suite continue d'entier numérique (on aurait pu penser de stoker uniquement le dernier)
+      • Événements `MessageSent` et `MessageReceived` permettant de tracer l’état cross-chain.
 
 ### TokenFactory Contract
 
-TokenFactory a pour but de manager les otken Natif ou non sur la chain en question :
-
-- Pour les tokens natifs, on les lock/unlock, tandis que pour les tokens non-natifs, on les burn/mint.
-- Si un WrappedToken n'existe pas encore sur la chaîne, alors un nouveau Smart Contract `Token` est déployé et son adresse est stockée.
-- Le contrat agit également comme un registry.
+- **Rôle** : Gérer la logique de lock/unlock (tokens natifs) ou burn/mint (tokens wraps) en fonction de la chaîne.
+- **Fonctionnement** :
+ • Sur la chaîne principale (CHAIN_ID), les tokens natifs sont simplement transférés (lock/unlock). Le contract agit donc comme un escrow token.
+ • Sur les autres chaînes, on créer des tokens wrap à la demande.
+ • La fonction `getOrCreateWrappedToken` déploie un nouveau contrat Token si le wrappedToken associé au token non natif n’existe pas encore.
+ • La fonction `mint` fait un `safeTransfer` sur la chaîne de destination ou un mint d'un wrappedToken si on est sur une chaîne secondaire.
+ • La fonction burn fait l’opération inverse (déverrouillage ou burn de wraps).
+ • Les mappings wrappedTokens[nativeToken] et nativeTokens[wrappedToken] permettent d’assurer la correspondance.
+ • **Propriétés intéressantes** :
+     • Le déploiement du wrapped token se fait avec un salt (calculé via abi.encodePacked) pour assurer l’unicité de l’adresse.
+     • L’ownership du contrat TokenFactory est finalement renoncé (la fonction setMinter renonce à l’ownership après définition du minter).
 
 ### Adapter Contract
 
-Permet d'interagir avec router CCIP de chainlink et donc par extension avec le protocol CCIP :
-
-- Sert d'interface de communication pour le protocole d'interopérabilité inter-chaînes de ChainLink (CCIP)
-- Écoute ou envoie des messages au routeur ChainLink
+- **Rôle** : Interagir avec le router CCIP (Chainlink) pour l’envoi et la réception de messages cross-chain.
+- **Fonctionnement** :
+ • Envoi de message : Reçoit un appel (via delegatecall) depuis LaPoste, encode le payload CCIP (avec gasLimit total = executionGasLimit + BASE_GAS_LIMIT), et exécute un ccipSend vers router.
+ • Réception de message : Est appelé par le router via la fonction ccipReceive. Vérifie que l’expéditeur décodé (message.sender) est bien l’adresse de LaPoste, et transmet le payload à LaPoste.
+ • **Points clés** :
+     • L’envoi cross-chain utilise un paramètre msg.value pour payer les frais CCIP.
+     • Le contrat vérifie router.isChainSupported(chainSelector) avant d’envoyer.
+     • Les messages entrants doivent provenir exclusivement du router (modifier onlyRouter).
 
 ## Architecture
 
