@@ -85,7 +85,7 @@ Pourquoi un stateRoot / RLP / Merkle Patricia ?
  • En pratique, on récupère sur L2 des Merkle Patricia Proofs permettant de reconstruire la donnée du compte (ou du slot de stockage) sur L1.
  • L’Oracle s’appuie sur ce mécanisme pour associer un bloc L1 (via blockhash, stateRoot) à un epoch L2, garantissant l’alignement temporel et l’authenticité des votes.
 
-Zoom sur le StateProofVerifier
+#### Zoom sur le StateProofVerifier
 
 Le StateProofVerifier est un module (souvent une bibliothèque) qui facilite :
 
