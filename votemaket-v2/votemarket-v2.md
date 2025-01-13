@@ -29,10 +29,7 @@ flowchart TB
 - Génération d’un diagramme de classes pour connaître les interdépendances ✅
 - Rédaction d’un flowchart pour avoir une bonne vue d’ensemble ✅
 - Lecture en détail du code pour comprendre certains aspects techniques ✅
-- Recherche des pistes d’amélioration :
-  - Couverture des tests ✅
-  - Stockage du smart contract ✅
-  - Analyse statique ✅
+- Recherche des pistes d’amélioration
 
 ## Analyse
 
