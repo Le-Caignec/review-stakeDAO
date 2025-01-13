@@ -25,7 +25,7 @@ flowchart TB
 
 - Clonage du repo ✅
 - Compréhension du besoin à l’aide du README ✅
-- Lecture du script de déploiement pour connaître rapidement quel contrat dépend de qui (pas de script ici) ✅
+- Lecture du script de déploiement pour connaître rapidement quel contrat dépend de qui ✅
 - Génération d’un diagramme de classes pour connaître les interdépendances ✅
 - Rédaction d’un flowchart pour avoir une bonne vue d’ensemble ✅
 - Lecture en détail du code pour comprendre certains aspects techniques ✅
