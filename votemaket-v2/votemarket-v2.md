@@ -176,7 +176,7 @@ sol2uml class ./packages/votemarket -f png -o ./classDiagram.png --hideInterface
 
 ![class diagram](./asset/classDiagram.png)
 
-### Pistes d'amélioration
+## Pistes d'amélioration
 
 1. **Expiration ou archivage des epochs anciens**
 
