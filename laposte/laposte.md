@@ -115,23 +115,23 @@ sol2uml class ./src -f png -o ./classDiagram.png --hideInterfaces
    - Utiliser un “Admin Proxy” (ou multisig) pour gérer les rôles (owner, minter, etc.) sur plusieurs chaînes.
    - **Avantage** : Administration uniformisée, upgrades coordonnées et réduction du risque d’erreurs.
 
-5. **Structs pour stocker les mappings & usage d’ERC1967**  
-   - Regrouper dans des structs (ex. `nonce`, `tokens`, etc.) pour améliorer la clarté et la modularité du code.
-   - **Ressource** : [ERC1967](https://docs.openzeppelin.com/contracts/5.x/api/utils#StorageSlot) pour des contrats upgradeables (UUPS, TransparentProxy).
-
-6. **Utiliser `transferOwnership` au lieu de `_transferOwnership`**  
+5. **Utiliser `transferOwnership` au lieu de `_transferOwnership`**  
+   - `TokenFactory` (L.47)
    - `transferOwnership` vérifie que l’adresse n’est pas `0`, réduisant le risque de “soft lock” si une adresse invalide est fournie.
 
-7. **Réflexion sur le rôle de “minter” et l’ownership**  
+6. **Réflexion sur le rôle de “minter” et l’ownership**  
    - Passer directement le `minter` ou l’owner dans le constructeur si possible.
    - Vérifier la nécessité de renoncer à l’ownership si le contrat doit évoluer à l’avenir.
 
-8. **Événements et messages d’erreur plus riches**  
+7. **Événements et messages d’erreur plus riches**  
    - Inclure plus de contexte (ex. `chainId` dans `CannotSendToSelf()`) pour faciliter débogage et monitoring.
 
-9. **Rendre l’adresse `router` (CCIP) modifiable**  
+8. **Rendre l’adresse `router` (CCIP) modifiable**  
    - L’actuel `immutable` rend tout changement du `router` compliqué.
    - **Solution** : rendre le contrat upgradeable (UUPS/TransparentProxy) ou ajouter une fonction de mise à jour de l’adresse du `router`.
+
+9. **Mise en place de CI/CD**  
+    - build, tests, coverage, linter, format, analyse statique
 
 #### Coverage
 
