@@ -41,11 +41,11 @@ graph TD
 
 - Clonage du repo ✅
 - Compréhension du besoin à l’aide du README ✅
-- Lecture du script de déploiement pour connaître rapidement quel contrat dépend de qui (pas de script ici) ❌
+- Lecture du script de déploiement pour comprendre les interdépendances entre les contracts (pas de script ici) ❌
 - Génération d’un diagramme de classes pour connaître les interdépendances ✅
 - Rédaction d’un flowchart pour avoir une bonne vue d’ensemble ✅
 - Lecture en détail du code pour comprendre certains aspects techniques ✅
-- Recherche des pistes d’amélioration :
+- Recherche de pistes d’amélioration :
   - Couverture des tests ✅
   - Stockage du smart contract ✅
   - Analyse statique ✅
