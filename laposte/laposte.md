@@ -153,15 +153,11 @@ sol2uml storage src,node_modules/@openzeppelin -c ContractName -f png
 
 Pas d'amélioration notable en ce qui concerne l'optimisation du storage.
 
-#### Analyse Statique (Slither)
+## Analyse Statique (Slither)
 
 ```bash
 slither . 
 ```
-
-Le rapport Slither ci-dessous signale plusieurs alertes qui, après examen, se révèlent être des faux positifs. Le tableau récapitule chaque alerte ainsi que l’explication.
-
-## Analyse Statique (Slither)
 
 Le rapport Slither ci-dessous signale plusieurs alertes qui, après examen, se révèlent être des faux positifs dans notre contexte métier. Le tableau récapitule chaque alerte ainsi que l’explication.
 
