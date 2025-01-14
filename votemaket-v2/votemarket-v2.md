@@ -2,23 +2,42 @@
 
 ```mermaid
 flowchart TB
-    %% --- Personnages ---
+    %% ---------------------- NŒUDS PRINCIPAUX ---------------------
+    subgraph Off-chain
+        OC1["Récupération Block Header L1 (RLP) +<br/>Proofs Merkle Patricia"]
+        OC2["Envoi des données + proofs<br/>au Verifier (L2)"]
+    end
+
     A["Manager"]
     X["Utilisateur / Voteur"]
     B["Contrat Votemarket"]
     D["OracleLens"]
+    V["Verifier (Contrat)"]
 
-    %% --- Flux d'actions ---
+    %% ---------------------- FLUX ---------------------
+    %% (1) Manager crée la campagne
     A -->|"(1) createCampaign()"| B
-    X -->|"(2) Vote sur un gauge"| D
-    X -->|"(3) Claim Reward"| B
-    B -.->|"(4) Get Data from Oracle"| D
-    
-    B --> G{"(5) Éligible ?"}
-    G -- "Oui" --> H["(6) Calcule reward + fee"]
-    H --> I["(7) Transfert reward + fee"]
 
-    G -- "Non" --> K["(8) Pas de récompense (ou claim invalide)"]
+    %% (2) Utilisateur vote sur un gauge (souvent L1)
+    X -->|"(2) Vote sur un gauge (L1)"| D
+
+    %% Partie off-chain
+    OC1 --> OC2 -->|"(3a) setBlockData(), <br/> setAccountData()..."| V
+
+    %% Verifier met à jour l'OracleLens (ou l’Oracle) : points, slopes...
+    V -->|"(3b) Mise à jour Oracle (epoch => slopes...)"| D
+
+    %% (4) L'utilisateur réclame sa récompense
+    X -->|"(4) Claim Reward"| B
+
+    %% (5) Votemarket interroge l'OracleLens
+    B -.->|"(5) getDataFromOracle()"| D
+
+    B --> G{"(6) Éligible ?"}
+    G -- "Oui" --> H["(7) Calcule reward + fee"]
+    H --> I["(8) Transfert reward + fee"]
+
+    G -- "Non" --> K["(9) Pas de récompense<br/>(ou claim invalide)"]
 ```
 
 ## Étapes
@@ -83,12 +102,6 @@ Slope & Bias
   
 En pratique, on segmente le temps en unités (une semaine) appelées epochs. À chaque epoch, on peut mettre à jour les valeurs (bias, slope) et déterminer la part de vote encore active. Dans le cas d’une veTokenomics, la puissance de vote d’un utilisateur (son bias) diminue au fil des blocs jusqu’à l’expiration de son lock. La slope indique la vitesse de cette décroissance.
 
-Pourquoi un stateRoot / RLP / Merkle Patricia ? TODO:
-
-- Pour prouver qu’à un certain bloc Ethereum (L1), l’utilisateur avait un certain bias ou avait voté dans un gauge.
-- En pratique, on récupère sur L2 des Merkle Patricia Proofs permettant de reconstruire la donnée du compte (ou du slot de stockage) sur L1.
-- L’Oracle s’appuie sur ce mécanisme pour associer un bloc L1 (via blockhash, stateRoot) à un epoch L2, garantissant l’alignement temporel et l’authenticité des votes.
-
 #### Zoom sur le StateProofVerifier
 
 Le StateProofVerifier est une librarie solidity qui facilite :
@@ -96,50 +109,59 @@ Le StateProofVerifier est une librarie solidity qui facilite :
 1. Décodage d’un en-tête de bloc (RLP-encoded)
    - RLP (Recursive Length Prefix) est le format de sérialisation d’Ethereum.
    - Avec des fonctions comme parseBlockHeader(...), on extrait :
-     - Le stateRoot (racine Merkle Patricia de l’état global de la blockchain),
+     - Le stateRoot (la racine Merkle Patricia représentant l’état global du réseau à ce bloc),
      - Le number (numéro du bloc),
      - Le timestamp, etc.
 
 2. Vérification de la validité du bloc
    - Après avoir calculé le hash (`keccak256`) de l’header RLP, on le compare à blockhash(header.number) (uniquement possible pour les 256 derniers blocs).
-   - Si la comparaison échoue, la preuve est rejetée.Sinon, ell est acceptée.
+   - Si la comparaison échoue, la preuve est rejetée. Si elle réussit, on peut se fier au stateRoot pour prouver l’état.
 
 3. Extraction et vérification d’un compte
-   - extractAccountFromProof(...) prend en entrée la Merkle Patricia Proof liée à un stateRoot, et la clé (keccak256(address)).
-   - Il reconstitue (ou prouve l’absence) du compte dans la state trie :
-     - Le nonce,
-     - La balance,
-     - Le storageRoot,
-     - Le codeHash.
-   - Si le compte n’existe pas, on en déduit que l’utilisateur n’a pas voté ou n’a pas de balance, par exemple. TODO:
+   - extractAccountFromProof(...) reconstitue (ou prouve l’absence d’) un compte à partir de la trie de l’état.
+   - On fournit :
+     - Le stateRoot,
+     - L’adresse du compte (sous forme keccak256(address)),
+     - La Merkle Patricia Proof.
+   - Le contrat reconstruit alors :
+      - Le nonce,
+      - La balance,
+      - Le storageRoot,
+      - Le codeHash.
+   - Si le compte n’existe pas, cela signifie, par exemple, que l’utilisateur ne dispose d’aucun verrouillage (bias/slope) et/ou qu'il n’a pas voté.
 
 4. Extraction et vérification d’une slot de stockage
    - extractSlotValueFromProof(...) reconstitue la valeur stockée dans un slot (variable) d’un contrat.
-   - On fournit la preuve Merkle Patricia depuis la racine storageRoot du compte, plus la clé du slot.
-   - Le module renvoie la valeur effectivement enregistrée dans ce slot.
+   - On transmet  la Merkle Patricia Proof et la clé du slot.
+   - La fonction renvoie la valeur effectivement enregistrée dans ce slot.
 
 Comment cela sert la logique de VoteMarket ?
 
-- Sur L2, on peut fournir:
-    1. Le bloc header L1 (RLP)
-    2. Les preuves Merkle Patricia correspondantes.
-- Le StateProofVerifier vérifie ces preuves on-chain, prouvant que, dans le bloc L1 X :
-  - L’utilisateur U avait un certain bias/slope, ou que la gauge G possède un vote actif pour U.
-- L’Oracle enregistre ensuite ces données pour l’epoch associé (ex. _l1Timestamp / 1 weeks * 1 weeks), permettant à VoteMarket de calculer combien de récompenses accorder à l’utilisateur U.
+- Sur L2, le protocole veut récompenser les utilisateurs qui ont voté sur L1.
+- Pour ce faire, on fournit au `Verifier` :
+
+ 1. Le bloc header L1 (RLP-encoded).
+ 2. Les preuves Merkle Patricia (récupérées off-chain) associées aux comptes/slots (pour prouver la slope, la bias, etc.).
+
+- Le Verifier utilise StateProofVerifier pour valider que, dans le bloc L1 X, l’utilisateur avait bien tel vote actif.
+- Ensuite, via l’Oracle, on associe ces données à l’epoch correspondant (par ex. block.timestamp / 1 weeks * 1 weeks).
+- VoteMarket pourra alors lire ces infos dans l’Oracle pour calculer la part de récompenses à distribuer à l’utilisateur.
 
 ```mermaid
 flowchart TB
-    A["Bloc Header (RLP-encodé)"] --> B["(1) Contrat reçoit<br/>_headerRlpBytes"]
-    B --> C["(2) parseBlockHeader() <br/>via RLPReader"]
-    C -->|"Décodage RLP :<br/>- stateRoot<br/>- number<br/>- timestamp<br/>- ..."| D["BlockHeader struct"]
+    A["Bloc Header (RLP-encodé)"] --> B["(1) Contrat Verifier reçoit<br/>_headerRlpBytes"]
+    B --> C["(2) parseBlockHeader() <br/>via StateProofVerifier"]
+    C -->|"Décodage RLP :<br/>- stateRoot<br/>- number<br/>- timestamp..."| D["BlockHeader struct"]
     D --> E["(3) Calcul<br/>header.hash = keccak256(...)"]
-    E -->|"(4) Comparaison<br/>hash vs blockhash(number)"| F["Vérification du bloc"]
-    F --> G{"BlockHeader<br/>Valide ?"}
-    G -- "Oui" --> H["(5) root = stateRootHash<br/>utilisé pour la Merkle Patricia Proof"]
+    E -->|"(4) Comparaison<br/>hash vs blockhash(number)"| F["Bloc vérifié / On récupère stateRoot"]
+    F --> G{"Proof Merkle Patricia<br/>(compte/slot) ?"}
+    G -- "Oui" --> H["(5) Extraction account/slot<br/>via extractSlotValueFromProof(...)"]
     G -- "Non" --> I["Rejet / Erreur"]
+    H --> J["(6) Mise à jour Oracle<br/>(epoch => slope, bias, etc.)"]
+    J --> K["Utilisé par VoteMarket"]
 ```
 
-Ainsi, StateProofVerifier apporte la brique de confiance nécessaire pour que VoteMarket puisse récompenser les utilisateurs en fonction de leurs votes, sans qu’il faille toute la state trie de L1.
+Grâce à ce processus, VoteMarket n’a pas besoin de toute la state trie de L1 : il lui suffit d’une preuve et d’un BlockHeader vérifié pour authentifier les votes. C’est la raison d’être de StateProofVerifier : apporter une preuve cryptographique on-chain que, sur L1, l’utilisateur (ou le gauge) avait effectivement les valeurs revendiquées.
 
 ### L1Sender
 
@@ -172,20 +194,19 @@ sol2uml class ./packages/votemarket -f png -o ./classDiagram.png --hideInterface
 
 ## Pistes d'amélioration
 
-1. **Expiration ou archivage des epochs anciens**
-   - Après un certain délai, il peut être inutile de conserver en permanence dans le storage les données d’epochs trop anciens.
-   - On pourrait imaginer une fonction d’archivage ou de cleanup pour libérer du stockage (et potentiellement baisser les coûts de lecture/écriture) si l’epoch est suffisamment lointain.
-
+1. **Imports plus spécifiques**  
+   - Éviter les imports globaux pour réduire la taille du bytecode, faciliter l’audit et limiter les conflits.
+   - **Exemple** : Au lieu de `import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";`, importer uniquement le module nécessaire si le reste du code n’est pas utilisé.
+  
 2. **Événements plus granulaires**
    - Actuellement, il n’y a pas forcément d’événement (event) détaillant l’insertion d’un nouveau BlockHeader ou de nouveaux points de vote. Ajouter des events pour chaque insertion (PointInserted, SlopeInserted, BlockHeaderInserted) faciliterait la traçabilité.
 
 3. **Gestion avancée des permissions**
    - À la place d’un simple mapping(address => bool) pour les dataProviders, on pourrait centraliser un système de rôles via un RoleManager (type AccessControl), permettant une gestion plus fine (ex. ROLE_DATA_PROVIDER, ROLE_BLOCK_PROVIDER).
-   - Cela pourrait inclure des possibilités de mise à jour ou de révocation plus souples.
 
 4. **Optimisation des structures**
    - Les structs Point et VotedSlope sont simples, mais on pourrait envisager d’utiliser des types plus compacts (ex. uint128 si les valeurs ne dépassent jamais 2^128, etc.) pour réduire le coût en gas.
-   - Vérifier s’il est nécessaire d’avoir des timestamps en uint256 ou s’ils peuvent être en uint40/uint48 (selon la durée d’utilisation prévue).
+   - Vérifier s’il est nécessaire d’avoir des timestamps en uint256 ou s’ils peuvent être en uint40/uint48 (selon la durée d’utilisation prévue notamment en ce qui concerne les epoch).
 
-5. **Contrôle de cohérence**
-   - À la création ou mise à jour d’un Point ou d’un VotedSlope, ajouter un check pour éviter des incohérences (par exemple, si lastUpdate est inférieur à la lastVote, etc.).
+5. **Mise en place de CI/CD**  
+    - build, tests, coverage, linter, format, analyse statique
